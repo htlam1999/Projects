@@ -1,0 +1,178 @@
+---
+title: "Final Project"
+author: "Henry Lam & Danice Long"
+subtitle: MGSC 310, Fall 2020, Zoom Professor Hersh
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+
+set.seed(1818)
+options(width=70)
+options(scipen=99)
+
+
+# general rchunk code options
+
+# this sets text to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=TRUE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = TRUE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+
+
+```
+
+```{r}
+library('tidyverse')
+library('dplyr')
+
+creditDF <- read.csv(here::here('datasets','application_data.csv'))
+
+creditDF <- creditDF %>% select('TARGET','DAYS_BIRTH','CODE_GENDER','NAME_CONTRACT_TYPE','FLAG_OWN_CAR', 'FLAG_OWN_REALTY', 'AMT_INCOME_TOTAL',
+                                'AMT_CREDIT', 'REG_REGION_NOT_LIVE_REGION') %>% na.omit()
+
+
+```
+
+```{r}
+
+y <- as.factor(creditDF$NAME_CONTRACT_TYPE)
+
+creditDF <- creditDF %>% mutate(TARGET = as.factor(creditDF$TARGET), CODE_GENDER = as.factor(creditDF$CODE_GENDER), 
+                                NAME_CONTRACT_TYPE = as.factor(creditDF$NAME_CONTRACT_TYPE),
+                                FLAG_OWN_CAR = as.factor(creditDF$FLAG_OWN_CAR), 
+                                FLAG_OWN_REALTY = as.factor(creditDF$FLAG_OWN_REALTY),
+                                REG_REGION_NOT_LIVE_REGION = as.factor(creditDF$REG_REGION_NOT_LIVE_REGION), AGE_YEARS = DAYS_BIRTH / -365)
+
+view(creditDF)
+```
+
+Summary Statistics
+```{r}
+summary(creditDF)
+sd(creditDF$AMT_CREDIT, na.rm = TRUE)
+sd(creditDF$AMT_INCOME_TOTAL, na.rm = TRUE)
+sd(creditDF$AGE_YEARS, na.rm = TRUE)
+```
+
+Logistic Regression
+```{r}
+library('yardstick')
+
+logMod <- glm(TARGET ~ CODE_GENDER + NAME_CONTRACT_TYPE + 
+                FLAG_OWN_CAR + FLAG_OWN_REALTY + AMT_INCOME_TOTAL + 
+                AMT_CREDIT, credit_train, family = 'binomial')
+
+preds_train <- predict(logMod, newdata = credit_train %>% filter(complete.cases(TARGET)),
+                       type = 'response')
+
+results_train <- data.frame(preds_target = preds_train,predicted = as.factor(ifelse(preds_train > 0.09, 1, 0)), 
+                            truth = as.factor(credit_train$TARGET), type = rep('train', length(preds_train)))
+
+view(results_train)
+
+cm_train <- conf_mat(results_train, 
+               truth = truth,
+               estimate = predicted)
+
+print(cm_train)
+
+accuracy_train <- (7032 + 171037) / (7032 + 12820 + 171037 + 55120)
+sprintf('Accuracy: %f', accuracy_train)
+specificity_train <- 171037 / (171037 +55120)
+sprintf('Specificity: %f',specificity_train)
+sensitivity_train <- 7032/ (7032 +12820)
+sprintf('Sensitivity: %f' ,sensitivity_train)
+
+
+```
+
+```{r}
+
+preds_test <- predict(logMod, newdata = credit_test %>% filter(complete.cases(TARGET)),
+                       type = 'response')
+
+results_test <- data.frame(predicted = as.factor(ifelse(preds_test > 0.09, 1, 0)), 
+                            truth = credit_test %>% filter(complete.cases(TARGET)) %>% select(TARGET), type = rep('train', length(preds_test)))
+
+cm_test <- conf_mat(results_test, 
+               truth = TARGET,
+               estimate = predicted)
+
+print(cm_test)
+
+accuracy_test<- (42638 + 1721) / (42638 + 1721 + 3252 + 13891)
+sprintf('Accuracy: %f', accuracy_test)
+specificity_test <- 42638 / (42638 +13891)
+sprintf('Specificity: %f', specificity_test)
+sensitivity_test <- 1721/ (1721 +3252)
+sprintf('Sensitivity: %f', sensitivity_test)
+
+
+```
+
+Regression Tree
+```{r, fig.width= 30, fig.height=15}
+library(partykit)
+library(PerformanceAnalytics)
+library(rpart)   
+library(rpart.plot)  
+
+credit_tree <- ctree(TARGET ~ AMT_CREDIT + AMT_INCOME_TOTAL + CODE_GENDER, data = credit_train)
+
+plot(credit_tree, gp = gpar(fontsize = 10))
+
+```
+
+Clustering 
+```{r}
+library('factoextra')
+library('cluster')
+library('NbClust')
+library(cluster)
+
+# randomly select 1000 rows  because vector memory was exhausted even though we have 64-bit RStudio
+creditDF_clust <- creditDF[sample(nrow(creditDF), 1000), ] %>% select('AGE_YEARS', 'AMT_INCOME_TOTAL', 'AMT_CREDIT')
+```
+
+```{r}
+Nb_cl <- NbClust(creditDF_clust, 
+        diss = NULL, 
+        distance = "euclidean",
+        min.nc = 2, 
+        max.nc = 15, 
+        method = "kmeans")
+
+Nb_cl$Best.nc[1,]
+```
+
+```{r}
+kmeans_clust <- kmeans(creditDF_clust,
+                       centers = 2,
+                       nstart = 25)
+
+kmeans_clust$centers
+```
+
+```{r}
+clusplot(creditDF_clust,
+         kmeans_clust$cluster,
+         color = TRUE,
+         shade = FALSE,
+         labels = 5, lines =2)
+```
